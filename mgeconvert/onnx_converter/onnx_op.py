@@ -217,7 +217,6 @@ class ElemwiseConverter(OperatorBaseConverter):
             )
             GT_0_OUT = GT_0_OUT + "_Cast"
             gt_mat_y = onnx.helper.make_node("Mul", [GT_0_OUT, inputs[1]], [outputs[0]])
-
             return [gt_0, gt_0_cast, gt_mat_y], self._net_sources, self._parameters
         else:
             return super().convert()
@@ -672,35 +671,20 @@ class PoolingBackward2DConverter(Pooling2DConverter):
 
         print("var0 : {} , var1 : {}  var2: {}, kh: {} , kw :{} , sh :{} sw : {}".format(input_relu_var.shape,input_pooling_var.shape,input_reshape_var.shape, opr.kh,opr.kw,opr.sh,opr.sw))
         if mode == "AveragePool":
+            print(inputs,outputs)
             if opr.kh != opr.sh or opr.kw != opr.sw:
                 raise BaseException(
                     "current convert can not support windows size not equal with stride size"
                 )
-            dp_expand = inputs[2] + "_expaned"
-            new_shape = inputs[0] + "_shape_average"
-            new_shape_tensor = onnx.helper.make_tensor_value_info(
-                new_shape, mge2onnx_dtype_mapping[np.int64], (4,)
-            )
-            self._parameters.append(
-                onnx.numpy_helper.from_array(
-                    np.array(input_relu_var.shape, dtype=np.int64), new_shape
-                )
-            )
-            self._net_sources.append(new_shape_tensor)
-
             nodes = []
-            dp_expand_node = onnx.helper.make_node(
-                "Expand", inputs=[inputs[2], new_shape], outputs=[dp_expand],
-            )
-            nodes.append(dp_expand_node)
-
             const_name = "average_unpool_const_value"
             const_node_name = inputs[2] + "_average_unpool_mean"
+            kernal_mean = (opr.kw * opr.kh) * np.ones(output_var.shape,dtype=output_var.dtype)
             const_value = onnx.helper.make_tensor(
                     name = const_name,
-                    data_type = mge2onnx_dtype_mapping[input_pooling_var.dtype],
-                    dims=(1,),
-                    vals=np.array([opr.kw*opr.kh]).astype(input_pooling_var.dtype),
+                    data_type = mge2onnx_dtype_mapping[output_var.dtype],
+                    dims=output_var.shape,
+                    vals=kernal_mean.flatten().astype(output_var.dtype)
                     )
             const_node = onnx.helper.make_node(
                     'Constant',
@@ -709,12 +693,11 @@ class PoolingBackward2DConverter(Pooling2DConverter):
                     value=const_value,
             )
             nodes.append(const_node)
-
             mat_mean_node = onnx.helper.make_node(
-                "Div", inputs=[dp_expand, const_node_name], outputs=[outputs[0]],
+                "Div", inputs=[inputs[1], const_node_name], outputs=outputs,
             )
             nodes.append(mat_mean_node)
-            return (nodes, self._net_sources, self._parameters)
+            return nodes, self._net_sources, self._parameters
 
         elif mode == "MaxPool":
             # redo pooling to get index
@@ -811,15 +794,46 @@ class ReduceConverter(OperatorBaseConverter):
         self.__opr_type__ = self.support_op_map[opr.mode]
 
     def _get_attrs(self):
-        return {"axes": [self._opr.axis]}
+        if self._opr.axis < 2000000000:
+            return {"axes": [self._opr.axis]}
+        else:
+            return {"axes": [0]}
 
     def convert(self):
-        inputs = self._get_inputs()
-        outputs = self._get_outputs()
-        nodes = onnx.helper.make_node(
-            self.__opr_type__, [inputs[0]], outputs, **self._get_attrs()
-        )
-        return [nodes], self._net_sources, self._parameters
+        if self._opr.inp_vars[0].shape  == self._opr.out_vars[0].shape:
+            inputs = self._get_inputs()
+            outputs = self._get_outputs()
+            nodes = onnx.helper.make_node(
+                self.__opr_type__, [inputs[0]], outputs, **self._get_attrs()
+            )
+            return [nodes], self._net_sources, self._parameters
+        else:
+            inputs = self._get_inputs()
+            outputs = self._get_outputs()
+            temp_node = inputs[0] + "_reshape_in"
+            out_nodes = []
+            nodes = onnx.helper.make_node(
+                self.__opr_type__, [inputs[0]], [temp_node], **self._get_attrs()
+            )
+            out_nodes.append(nodes)
+            shape = inputs[1] + "_shape"
+            shape_tensor = onnx.helper.make_tensor_value_info(
+                shape, mge2onnx_dtype_mapping[np.int64], self._opr.inp_vars[1].shape
+            )
+            shape_param = onnx.numpy_helper.from_array(
+                self._opr.inp_vars[1].np_data.astype(np.int64), shape
+            )
+            self._net_sources.append(shape_tensor)
+            self._parameters.append(shape_param)
+            reshape_node = onnx.helper.make_node(
+                    'Reshape',
+                    [temp_node,shape],
+                    outputs,
+                    )
+            out_nodes.append(reshape_node)
+            return out_nodes,self._net_sources,self._parameters
+
+
 
 
 @_register_op(AxisAddRemoveOpr)
