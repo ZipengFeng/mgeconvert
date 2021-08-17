@@ -198,12 +198,13 @@ class ElemwiseConverter(OperatorBaseConverter):
         if self.__opr_type__ == "SWITCH_GT0":
             inputs = self._get_inputs()
             outputs = self._get_outputs()
-            zero = inputs[0] + "_ZERO"
+            zero = outputs[0] + "_ZERO"
             dtype = self._opr.inp_vars[0].dtype
             zero_source = onnx.helper.make_tensor_value_info(
-                zero, mge2onnx_dtype_mapping[dtype], (1,)
+                zero, mge2onnx_dtype_mapping[dtype], self._opr.out_vars[0].shape
             )
-            zero_param = onnx.numpy_helper.from_array(np.zeros(1, dtype=dtype), zero)
+            zero_param = onnx.numpy_helper.from_array(
+                    np.zeros(self._opr.out_vars[0].shape, dtype=dtype), zero)
             self._net_sources.append(zero_source)
             self._parameters.append(zero_param)
 
@@ -417,6 +418,16 @@ class Conv2DConverter(OperatorBaseConverter):
         if isinstance(self._opr, ConvolutionBackwardDataOpr):
             onnx_op = "ConvTranspose"
             inputs = [inputs[1], inputs[0]]
+            if len(self._opr.out_vars[0].shape) == 4 \
+                    and len(self._opr.inp_vars[1].shape) ==4: # for nchw
+                attr = self._get_attrs()
+                ih,iw = self._opr.inp_vars[1].shape[2],self._opr.inp_vars[1].shape[3]
+                oh,ow = self._opr.out_vars[0].shape[2],self._opr.out_vars[0].shape[3]
+                opr = self._opr
+                kh,kw,sh,sw,dh,dw,ph,pw = opr.kh,opr.kw,opr.sh,opr.sw,opr.dilation_h,opr.dilation_w,opr.ph,opr.pw
+                out_ph =  oh-sh*(ih-1)-((kh-1)*dh+1) + 2*ph
+                out_pw =  ow-sw*(iw-1)-((kw-1)*dw+1) + 2*pw
+                attrs["output_padding"] = [out_ph,out_pw,out_ph,out_pw]
         conv2d = onnx.helper.make_node(onnx_op, inputs, [outputs[0]], **attrs)
         nodes.extend([conv2d])
         return (nodes, self._net_sources, self._parameters)
@@ -611,7 +622,6 @@ class Conv2DBackwardFilterConverter(OperatorBaseConverter):
             perm=[1, 0, 2, 3],
         )
         nodes.append(transpose)
-
         return (nodes, self._net_sources, self._parameters)
 
 
@@ -669,9 +679,8 @@ class PoolingBackward2DConverter(Pooling2DConverter):
         input_relu_var, input_pooling_var, input_reshape_var = opr.inp_vars
         output_var = opr.out_vars[0]
 
-        print("var0 : {} , var1 : {}  var2: {}, kh: {} , kw :{} , sh :{} sw : {}".format(input_relu_var.shape,input_pooling_var.shape,input_reshape_var.shape, opr.kh,opr.kw,opr.sh,opr.sw))
+        # print("var0 : {} , var1 : {}  var2: {}, kh: {} , kw :{} , sh :{} sw : {}".format(input_relu_var.shape,input_pooling_var.shape,input_reshape_var.shape, opr.kh,opr.kw,opr.sh,opr.sw))
         if mode == "AveragePool":
-            print(inputs,outputs)
             if opr.kh != opr.sh or opr.kw != opr.sw:
                 raise BaseException(
                     "current convert can not support windows size not equal with stride size"
@@ -694,7 +703,7 @@ class PoolingBackward2DConverter(Pooling2DConverter):
             )
             nodes.append(const_node)
             mat_mean_node = onnx.helper.make_node(
-                "Div", inputs=[inputs[1], const_node_name], outputs=outputs,
+                "Div", inputs=[inputs[2], const_node_name], outputs=outputs,
             )
             nodes.append(mat_mean_node)
             return nodes, self._net_sources, self._parameters

@@ -94,7 +94,7 @@ def test_subtensor():
     _test_convert_result(net.data, tmp_file, mge_result, max_error)
 
 
-def test_transopse():
+def test_transpose():
     net = TransposeOpr()
     mge_result = dump_mge_model(net, net.data)
     _test_convert_result(net.data, tmp_file, mge_result, max_error)
@@ -260,7 +260,7 @@ def test_xornet():
 
 
 resblock = "resblock_l2loss.mge"
-resnet = "resnet18_celoss.mge"
+resnet = "resnet18_l2loss.mge"
 
 
 def test_resblock():
@@ -278,7 +278,7 @@ def test_resblock():
         return y
 
     file = os.path.join(os.path.dirname(__file__), resnet)
-    data = np.random.randn(1, 64,2,2).astype("float32")
+    data = np.random.randn(1,64,2,2).astype("float32")
     label = np.random.randn(1,1000).astype("float32")
     mge_result = infer_mge(data,label,file)
 
@@ -308,7 +308,7 @@ def test_resnet():
 
     file = os.path.join(os.path.dirname(__file__), resnet)
     data = np.random.randn(1, 3, 224, 224).astype("float32")
-    label = np.random.randn(1,1000).astype("float32")
+    label = np.random.randn(1,10).astype("float32")
     mge_result = infer_mge(data,label,file)
 
     with open(tmp_file + ".onnx", "wb") as fout:
