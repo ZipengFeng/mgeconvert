@@ -718,10 +718,23 @@ class PoolingBackward2DConverter(Pooling2DConverter):
                 outputs=[pooling_not_use, pooling_idx],
                 **self._get_attrs(),
             )
+
+            unpool_shape = outputs[0] + "_max_unpool_shape"
+            unpool_shape_tensor = onnx.helper.make_tensor_value_info(
+                    unpool_shape,
+                    mge2onnx_dtype_mapping[np.int64],
+                    (4,)
+                    )
+            unpool_shape_param = onnx.numpy_helper.from_array(
+                    np.array(self._opr.out_vars[0].shape, dtype=np.int64),
+                    unpool_shape
+                    )
+            self._net_sources.append(unpool_shape_tensor)
+            self._parameters.append(unpool_shape_param)
             # unpooling
             unpooling = onnx.helper.make_node(
                 "MaxUnpool",
-                inputs=[inputs[2], pooling_idx],
+                inputs=[inputs[2], pooling_idx,unpool_shape],
                 outputs=[outputs[0]],
                 **self._get_attrs(),
             )
