@@ -218,18 +218,17 @@ class Host2DeviceCopyOpr(MgeOpr):
         assert len(opr.outputs) == 1, "wrong number of outputs"
         self.shape = get_shape(opr.outputs[0])
 
-
 class MultipleDeviceTensorHolderOpr(MgeOpr):
     name = "MultipleDeviceTensorHolder"
-
 
 class VolatileSharedDeviceTensorOpr(MgeOpr):
     name = "VolatileSharedDeviceTensor"
 
-
 class IndexingOneHotOpr(MgeOpr):
     name = "IndexingOneHotOpr"
 
+class IndexingSetOneHotOpr(MgeOpr):
+    name = "IndexingSetOneHotOpr"
 
 class SubtensorOpr(MgeOpr):
     name = "Subtensor"

@@ -34,6 +34,8 @@ from .utils import (
     TypeCvtOpr,
     XORNet,
     dump_mge_model,
+    IndexingOneHotOpr,
+    IndexingSetOneHotOpr,
 )
 
 max_error = 1e-6
@@ -123,6 +125,10 @@ def test_reshape():
     mge_result = dump_mge_model(net, net.data, tmp_file)
     _test_convert_result(net.data, tmp_file, mge_result, max_error)
 
+def test_indexing_one_hot():
+    net = IndexingOneHotOpr()
+    mge_result = dump_mge_model(net,net.data, tmp_file)
+    _test_convert_result(net.data,tmp_file,mge_result,max_error,min_version=11,max_version=12)
 
 @pytest.mark.parametrize(
     "mode",
@@ -260,7 +266,7 @@ def test_xornet():
 
 
 resblock = "resblock_l2loss.mge"
-resnet = "resnet18_l2loss.mge"
+resnet = "resnet18_ce_loss.mge"
 
 
 def test_resblock():
@@ -297,7 +303,7 @@ def test_resnet():
     if megengine.__version__ < "1.4.0":
         return
     net = TopologyNetwork(resnet)
-    converter = OnnxConverter(net, opset_version=10, graph_name="graph")
+    converter = OnnxConverter(net, opset_version=11, graph_name="graph")
     model = converter.convert()
 
     def infer_mge(x,y,file):

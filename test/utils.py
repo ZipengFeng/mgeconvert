@@ -403,3 +403,21 @@ class XORNet_LeakyRelu(M.Module):
         x = self.fc2(x)
         x = F.leaky_relu(x)
         return x
+
+class IndexingOneHotOpr(M.Module):
+    def __init__(self):
+        super().__init__()
+        self.data = np.random.randn(8,10).astype("float32")
+        self.data1 = F.zeros((8,),dtype="int32")
+
+    def forward(self,x):
+        return F.indexing_one_hot(x,self.data1)
+
+class IndexingSetOneHotOpr(M.Module):
+    def __init__(self):
+        super().__init__()
+        self.data = np.random.randn(8,10)
+        self.data1 = np.ones((8,),dtype=np.int64)
+
+    def forward(self,x):
+        return F.indexing_one_hot()

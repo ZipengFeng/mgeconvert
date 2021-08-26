@@ -33,6 +33,8 @@ from ..mge_context import (
     SubtensorOpr,
     TypeCvtOpr,
     get_symvar_value,
+    IndexingOneHotOpr,
+    IndexingSetOneHotOpr
 )
 
 mge2onnx_dtype_mapping = {
@@ -126,7 +128,6 @@ class OperatorBaseConverter:
             )
         ]
         return nodes, self._net_sources, self._parameters
-
 
 @_register_op(MultipleDeviceTensorHolderOpr, SharedDeviceTensorOpr)
 class IgnoredOperatorConverter(OperatorBaseConverter):
@@ -816,47 +817,15 @@ class ReduceConverter(OperatorBaseConverter):
         self.__opr_type__ = self.support_op_map[opr.mode]
 
     def _get_attrs(self):
-        if self._opr.axis < 2000000000:
-            return {"axes": [self._opr.axis]}
-        else:
-            return {"axes": [0]}
+        return {"axes": [self._opr.axis]}
 
     def convert(self):
-        if self._opr.inp_vars[0].shape  == self._opr.out_vars[0].shape:
-            inputs = self._get_inputs()
-            outputs = self._get_outputs()
-            nodes = onnx.helper.make_node(
-                self.__opr_type__, [inputs[0]], outputs, **self._get_attrs()
-            )
-            return [nodes], self._net_sources, self._parameters
-        else:
-            inputs = self._get_inputs()
-            outputs = self._get_outputs()
-            temp_node = inputs[0] + "_reshape_in"
-            out_nodes = []
-            nodes = onnx.helper.make_node(
-                self.__opr_type__, [inputs[0]], [temp_node], **self._get_attrs()
-            )
-            out_nodes.append(nodes)
-            shape = inputs[1] + "_shape"
-            shape_tensor = onnx.helper.make_tensor_value_info(
-                shape, mge2onnx_dtype_mapping[np.int64], self._opr.inp_vars[1].shape
-            )
-            shape_param = onnx.numpy_helper.from_array(
-                self._opr.inp_vars[1].np_data.astype(np.int64), shape
-            )
-            self._net_sources.append(shape_tensor)
-            self._parameters.append(shape_param)
-            reshape_node = onnx.helper.make_node(
-                    'Reshape',
-                    [temp_node,shape],
-                    outputs,
-                    )
-            out_nodes.append(reshape_node)
-            return out_nodes,self._net_sources,self._parameters
-
-
-
+        inputs = self._get_inputs()
+        outputs = self._get_outputs()
+        nodes = onnx.helper.make_node(
+            self.__opr_type__, [inputs[0]], outputs, **self._get_attrs()
+        )
+        return [nodes], self._net_sources, self._parameters
 
 @_register_op(AxisAddRemoveOpr)
 class AxisAddRemoveConverter(OperatorBaseConverter):
@@ -918,3 +887,143 @@ class TypeCvtOprConverter(OperatorBaseConverter):
             "Cast", inputs, outputs, to=mge2onnx_dtype_mapping[target_dtype]
         )
         return [node], self._net_sources, self._net_sources
+
+@_register_op(IndexingOneHotOpr)
+class IndexingOneHotConverter(OperatorBaseConverter):
+    def convert(self):
+        assert opset_version >  10 , "IndexingOneHot only support in onnx-11 and over"
+        inputs = self._get_inputs()
+        outputs = self._get_outputs()
+
+        index = inputs[1] + "_unsqueeze"
+        index_node = onnx.helper.make_node(
+            'Unsqueeze',
+            inputs=[inputs[1]],
+            outputs=[index],
+            axes=[-1]
+        )
+        out_node = onnx.helper.make_node(
+                    "GatherElements",
+                    inputs=[inputs[0],index],
+                    outputs=outputs,
+                    axis=1,
+                    )
+        return [index_node,out_node],self._net_sources,self._parameters
+
+@_register_op(IndexingSetOneHotOpr)
+class IndexingSetOneHotConverter(OperatorBaseConverter):
+    def convert(self):
+        inputs = self._get_inputs()
+        outputs = self._get_outputs()
+        nodes =[]
+
+        """
+        define the boardcast shape  such as  (8,10)
+        """
+        broadcast_name = inputs[2] + "_broadcast_shape"
+        broadcast_shape = onnx.helper.make_tensor(
+                name = broadcast_name,
+                data_type = mge2onnx_dtype_mapping[np.int64],
+                dims=(2,),
+                vals=np.array(self._opr.out_vars[0].shape).astype(np.int64),
+                )
+        broadcast_node = onnx.helper.make_node(
+                'Constant',
+                inputs=[],
+                outputs=[broadcast_name],
+                value=broadcast_shape,
+        )
+        nodes.append(broadcast_node)
+
+        """
+        expand the values such as [[1],[2],...]  to (batch,num_classes)
+        [
+        [1],[1],...,
+        [2],[2],...,
+        ...
+        ]
+        """
+        values_repeat = inputs[2]  + "_broadcast_to_numclasses"
+        repeat_node = onnx.helper.make_node(
+            'Expand',
+            inputs=[inputs[2], broadcast_name],
+            outputs=[values_repeat],
+        )
+        nodes.append(repeat_node)
+
+        """
+        expand the index such as (0,1,3,1,2,..)  to (batch,num_classes)
+        [
+        [0],[0],...,
+        [1],[1],...,
+        ...
+        ]
+        """
+        index_matrix_broadcast = inputs[1] + "_broadcast_to_numclasses"
+        index_broadcast_node = onnx.helper.make_node(
+            'Expand',
+            inputs=[inputs[1],broadcast_name],
+            outputs=[index_matrix_broadcast],
+                )
+        nodes.append(index_broadcast_node)
+
+        """
+        generate the index matrix
+        like
+        [
+        [0],[1],[2],...,[9],
+        ...
+        ]
+        """
+        num_classes = list(self._opr.out_vars[0].shape)[-1]
+        index_numpy = np.arange(0,num_classes,dtype=self._opr.inp_vars[1].dtype)
+        index_numpy = np.broadcast_to(index_numpy,self._opr.out_vars[0].shape)
+        index_matrix_name = inputs[1] + "_index_matrix"
+        index_tensor = onnx.helper.make_tensor_value_info(
+                        index_matrix_name, mge2onnx_dtype_mapping[self._opr.inp_vars[1].dtype], index_numpy.shape
+                    )
+        index_param = onnx.numpy_helper.from_array(index_numpy, index_matrix_name)
+        self._net_sources.append(index_tensor)
+        self._parameters.append(index_param)
+
+        """
+        calculate the mask matrix
+        """
+
+        mask_matrix_name = inputs[2] + "_mask_matrix"
+        mask_matrix_node = onnx.helper.make_node(
+                "Equal",
+                inputs=[index_matrix_broadcast,index_matrix_name],
+                outputs=[mask_matrix_name],
+                )
+        nodes.append(mask_matrix_node)
+        mask_matrix_cast_name = mask_matrix_name + "_Cast"
+        mask_cast = onnx.helper.make_node(
+                "Cast",
+                inputs=[mask_matrix_name],
+                outputs=[mask_matrix_cast_name],
+                to=mge2onnx_dtype_mapping[self._opr.inp_vars[2].dtype],
+        )
+        nodes.append(mask_cast)
+
+        """
+        get the value matrix
+        [
+        [0],[0],[2],[0],[0],
+        [0],[3],[0],[0],[0],
+        ]
+        """
+        values_mat = values_repeat + "_mat_mask"
+        mask_mat_value_node = onnx.helper.make_node("Mul", [mask_matrix_cast_name, values_repeat], [values_mat])
+        nodes.append(mask_mat_value_node)
+
+        """
+        set indexing
+        """
+        indexing_set_node = onnx.helper.make_node(
+                "Where",
+                inputs=[mask_matrix_name,values_mat,inputs[0]],
+                outputs=[outputs[0]],
+                )
+        nodes.append(indexing_set_node)
+        return nodes,self._net_sources,self._parameters
