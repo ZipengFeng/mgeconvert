@@ -817,15 +817,48 @@ class ReduceConverter(OperatorBaseConverter):
         self.__opr_type__ = self.support_op_map[opr.mode]
 
     def _get_attrs(self):
-        return {"axes": [self._opr.axis]}
+        if self._opr.axis < 2000000000:
+            return {"axes": [self._opr.axis]}
+        else:
+            return {"axes": [0]}
 
     def convert(self):
-        inputs = self._get_inputs()
-        outputs = self._get_outputs()
-        nodes = onnx.helper.make_node(
-            self.__opr_type__, [inputs[0]], outputs, **self._get_attrs()
-        )
-        return [nodes], self._net_sources, self._parameters
+        if self._opr.inp_vars[0].shape  == self._opr.out_vars[0].shape:
+            inputs = self._get_inputs()
+            outputs = self._get_outputs()
+            nodes = onnx.helper.make_node(
+                self.__opr_type__, [inputs[0]], outputs, **self._get_attrs()
+            )
+            return [nodes], self._net_sources, self._parameters
+        else:
+            inputs = self._get_inputs()
+            outputs = self._get_outputs()
+            if len(inputs) > 1:
+                temp_node = inputs[0] + "_reshape_in"
+            else:
+                temp_node = outputs[0]
+            out_nodes = []
+            nodes = onnx.helper.make_node(
+                self.__opr_type__, [inputs[0]], [temp_node], **self._get_attrs()
+            )
+            out_nodes.append(nodes)
+            if len(inputs) > 1:
+                shape = inputs[1] + "_shape"
+                shape_tensor = onnx.helper.make_tensor_value_info(
+                    shape, mge2onnx_dtype_mapping[np.int64], self._opr.inp_vars[1].shape
+                )
+                shape_param = onnx.numpy_helper.from_array(
+                    self._opr.inp_vars[1].np_data.astype(np.int64), shape
+                )
+                self._net_sources.append(shape_tensor)
+                self._parameters.append(shape_param)
+                reshape_node = onnx.helper.make_node(
+                        'Reshape',
+                        [temp_node,shape],
+                        outputs,
+                        )
+                out_nodes.append(reshape_node)
+            return out_nodes,self._net_sources,self._parameters
 
 @_register_op(AxisAddRemoveOpr)
 class AxisAddRemoveConverter(OperatorBaseConverter):
