@@ -992,10 +992,38 @@ class IndexingSetOneHotConverter(OperatorBaseConverter):
         ...
         ]
         """
+        # index_unsqueeze = inputs[1] + "_reshape_broadcast_unsqueeze"
+        # unsqueeze_node = onnx.helper.make_node(
+        #     "Unsqueeze",
+        #     inputs=[inputs[1]],
+        #     outputs=[index_unsqueeze],
+        #     axes = np.array([0],dtype=np.int64),
+        # )
+        # nodes.append(unsqueeze_node)
+        batch = list(self._opr.inp_vars[1].shape)
+        batch.append(1)
+        batch = tuple(batch)
+
+        index_reshape = inputs[1] + "_reshape_broadcast"
+        shape_tensor = onnx.helper.make_tensor_value_info(
+            index_reshape, mge2onnx_dtype_mapping[np.int64], (2,)
+        )
+        shape_param = onnx.numpy_helper.from_array(
+            np.array(batch,dtype=np.int64), index_reshape
+        )
+        self._net_sources.append(shape_tensor)
+        self._parameters.append(shape_param)
+        reshaped_index = inputs[1] + "_reshaped_index"
+        index_reshape_node = onnx.helper.make_node(
+                "Reshape",
+                inputs=[inputs[1],index_reshape],
+                outputs=[reshaped_index],
+                )
+        nodes.append(index_reshape_node)
         index_matrix_broadcast = inputs[1] + "_broadcast_to_numclasses"
         index_broadcast_node = onnx.helper.make_node(
             'Expand',
-            inputs=[inputs[1],broadcast_name],
+            inputs=[reshaped_index,broadcast_name],
             outputs=[index_matrix_broadcast],
                 )
         nodes.append(index_broadcast_node)
@@ -1013,8 +1041,8 @@ class IndexingSetOneHotConverter(OperatorBaseConverter):
         index_numpy = np.broadcast_to(index_numpy,self._opr.out_vars[0].shape)
         index_matrix_name = inputs[1] + "_index_matrix"
         index_tensor = onnx.helper.make_tensor_value_info(
-                        index_matrix_name, mge2onnx_dtype_mapping[self._opr.inp_vars[1].dtype], index_numpy.shape
-                    )
+                index_matrix_name, mge2onnx_dtype_mapping[self._opr.inp_vars[1].dtype], index_numpy.shape
+        )
         index_param = onnx.numpy_helper.from_array(index_numpy, index_matrix_name)
         self._net_sources.append(index_tensor)
         self._parameters.append(index_param)
