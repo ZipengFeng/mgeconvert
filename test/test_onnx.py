@@ -267,7 +267,7 @@ def test_xornet():
 
 resblock = "resblock_l2loss.mge"
 # resnet = "resnet18_ce_loss.mge"
-resnet = "resnet18_ce_loss_b8.mge"
+resnet = "resnet18_avg_pool_l2_loss.mge"
 
 
 def test_resblock():
@@ -314,8 +314,8 @@ def test_resnet():
         return y
 
     file = os.path.join(os.path.dirname(__file__), resnet)
-    data = np.random.randn(8, 3, 224, 224).astype("float32")
-    label = np.random.randn(8,).astype("float32")
+    data = np.random.randn(1, 3, 224, 224).astype("float32")
+    label = np.random.randn(1,10).astype("float32")
     mge_result = infer_mge(data,label,file)
 
     with open(tmp_file + ".onnx", "wb") as fout:
