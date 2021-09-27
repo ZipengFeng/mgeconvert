@@ -687,14 +687,60 @@ class PoolingBackward2DConverter(Pooling2DConverter):
                     "current convert can not support windows size not equal with stride size"
                 )
             nodes = []
+            shape_name = outputs[0] + "_shape"
+            shape_tensor = onnx.helper.make_tensor_value_info(
+                    shape_name,mge2onnx_dtype_mapping[np.int64],(len(output_var.shape),)
+            )
+            shape_param = onnx.numpy_helper.from_array(np.array(output_var.shape,dtype=np.int64),shape_name)
+            self._net_sources.append(shape_tensor)
+            self._parameters.append(shape_param)
+
+            scales_name = inputs[2] + "_scales"
+            scale_h,scale_w = output_var.shape[2]/input_reshape_var.shape[2],output_var.shape[3]/input_reshape_var.shape[3]
+            assert scale_h == scale_w
+            scale = onnx.helper.make_node(
+                    "Constant",
+                    inputs=[],
+                    outputs=[scales_name],
+                    value = onnx.helper.make_tensor(
+                        scales_name,
+                        data_type=mge2onnx_dtype_mapping[np.float32],
+                        dims=(),
+                        vals=[scale_h],
+                        )
+                    )
+            nodes.append(scale)
+            ndim = len(output_var.shape)
+            roi = [1.] * (2 * ndim)
+            roi_name = inputs[2] + "_roi"
+            roi_node = onnx.helper.make_node(
+                    "Constant",
+                    inputs=[],
+                    outputs=[roi_name],
+                    value = onnx.helper.make_tensor(
+                        roi_name,
+                        mge2onnx_dtype_mapping[np.float32],
+                        dims=(2*ndim,),
+                        vals=roi,
+                    )
+            )
+            nodes.append(roi_node)
+
+            resize_name = inputs[2] + "_resize"
+            resize = onnx.helper.make_node(
+                    "Resize",
+                    inputs=[inputs[2],roi_name,scales_name,shape_name],
+                    outputs=[resize_name],
+                    )
+            nodes.append(resize)
+
             const_name = "average_unpool_const_value"
             const_node_name = inputs[2] + "_average_unpool_mean"
-            kernal_mean = (opr.kw * opr.kh) * np.ones(output_var.shape,dtype=output_var.dtype)
             const_value = onnx.helper.make_tensor(
                     name = const_name,
                     data_type = mge2onnx_dtype_mapping[output_var.dtype],
-                    dims=output_var.shape,
-                    vals=kernal_mean.flatten().astype(output_var.dtype)
+                    dims=(),
+                    vals=[opr.kw*opr.kh]
                     )
             const_node = onnx.helper.make_node(
                     'Constant',
@@ -704,7 +750,7 @@ class PoolingBackward2DConverter(Pooling2DConverter):
             )
             nodes.append(const_node)
             mat_mean_node = onnx.helper.make_node(
-                "Div", inputs=[inputs[2], const_node_name], outputs=outputs,
+                "Div", inputs=[resize_name, const_node_name], outputs=outputs,
             )
             nodes.append(mat_mean_node)
             return nodes, self._net_sources, self._parameters
