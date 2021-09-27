@@ -817,10 +817,7 @@ class ReduceConverter(OperatorBaseConverter):
         self.__opr_type__ = self.support_op_map[opr.mode]
 
     def _get_attrs(self):
-        if self._opr.axis < 2000000000:
-            return {"axes": [self._opr.axis]}
-        else:
-            return {"axes": [0]}
+        return {"axes": [self._opr.axis]}
 
     def convert(self):
         if self._opr.inp_vars[0].shape  == self._opr.out_vars[0].shape:
