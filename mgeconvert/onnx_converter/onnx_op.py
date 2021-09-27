@@ -687,17 +687,12 @@ class PoolingBackward2DConverter(Pooling2DConverter):
                     "current convert can not support windows size not equal with stride size"
                 )
             nodes = []
-            shape_name = outputs[0] + "_shape"
-            shape_tensor = onnx.helper.make_tensor_value_info(
-                    shape_name,mge2onnx_dtype_mapping[np.int64],(len(output_var.shape),)
-            )
-            shape_param = onnx.numpy_helper.from_array(np.array(output_var.shape,dtype=np.int64),shape_name)
-            self._net_sources.append(shape_tensor)
-            self._parameters.append(shape_param)
-
             scales_name = inputs[2] + "_scales"
-            scale_h,scale_w = output_var.shape[2]/input_reshape_var.shape[2],output_var.shape[3]/input_reshape_var.shape[3]
+            scale_h,scale_w = output_var.shape[-2]/input_reshape_var.shape[-2],output_var.shape[-1]/input_reshape_var.shape[-1]
             assert scale_h == scale_w
+            shape = [1] * len(output_var.shape)
+            shape[-2]*=scale_h
+            shape[-1]*=scale_w
             scale = onnx.helper.make_node(
                     "Constant",
                     inputs=[],
@@ -705,8 +700,8 @@ class PoolingBackward2DConverter(Pooling2DConverter):
                     value = onnx.helper.make_tensor(
                         scales_name,
                         data_type=mge2onnx_dtype_mapping[np.float32],
-                        dims=(),
-                        vals=[scale_h],
+                        dims=(len(output_var.shape),),
+                        vals=shape,
                         )
                     )
             nodes.append(scale)
@@ -729,7 +724,7 @@ class PoolingBackward2DConverter(Pooling2DConverter):
             resize_name = inputs[2] + "_resize"
             resize = onnx.helper.make_node(
                     "Resize",
-                    inputs=[inputs[2],roi_name,scales_name,shape_name],
+                    inputs=[inputs[2],roi_name,scales_name],
                     outputs=[resize_name],
                     )
             nodes.append(resize)
