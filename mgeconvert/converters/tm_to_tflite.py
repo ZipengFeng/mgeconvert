@@ -34,17 +34,17 @@ def tracedmodule_to_tflite(
     mtk=False,
 ):
     """
-    Convert traced model to TFLite,
-    and save the TFLite model to file `output`.
+	Convert traced model to TFLite,
+	and save the TFLite model to file `output`.
 
-    :param traced_module: a traced module or the file path of a traced module.
-    :param output: the filename used for the saved model.
-    :param data_type: data type of input
+	:param traced_module: a traced module or the file path of a traced module.
+	:param output: the filename used for the saved model.
+	:param data_type: data type of input
 
-    :param graph_name: the name of the TFLite graph.
-    :param mtk: if this TFLite will be run on mtk.
-    :type mtk: bool
-    """
+	:param graph_name: the name of the TFLite graph.
+	:param mtk: if this TFLite will be run on mtk.
+	:type mtk: bool
+	"""
     if isinstance(traced_module, str):
         traced_module = mge.load(traced_module)
     assert isinstance(
@@ -103,7 +103,8 @@ def tracedmodule_to_tflite(
     )
 
     if not require_quantize:
-        quantizer.save_quantize_params(transformed_irgraph, path=quantize_file_path)
+        quantizer.save_quantize_params(transformed_irgraph)
+        quantizer.dump_quant_param(path=quantize_file_path)
 
     converter = TFLiteConverter(transformed_irgraph, graph_name, quantizer=quantizer)
     model = converter.convert()

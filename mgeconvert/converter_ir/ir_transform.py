@@ -86,9 +86,11 @@ class TransformerRule(Enum):
 
     FUSE_ACTIVATION = 123
     REMOVE_IDENTITY = 124
+    REMOVE_RELU = 125
 
     REMOVE_UNRELATED_IROP = 130
     ADD_FAKE_HSIGMOID_OUT = 131
+    RENAME_CAFFE_LAYER_TENSOR = 132
 
 
 def cmp_rules(a, b):
@@ -645,8 +647,8 @@ def _fuse_softmax(net: IRGraph):
 @_register_tranformation_rule(TransformerRule.FUSE_FOR_LEAKY_RELU)
 def _fuse_leaky_relu(net: IRGraph):
     """
-    Elemwise(ADD) + Elemwise(MUL) + Elemwise(MAX) + Elemwise(MIN) -> LeakyRelu
-    """
+	Elemwise(ADD) + Elemwise(MUL) + Elemwise(MAX) + Elemwise(MIN) -> LeakyRelu
+	"""
     for opr in net.all_oprs:
         if (
             opr.name == "Add"
@@ -690,8 +692,8 @@ def _fuse_leaky_relu(net: IRGraph):
 @_register_tranformation_rule(TransformerRule.FUSE_FOR_CONV_BIAS)
 def _fuse_for_conv_bias(net: IRGraph):
     """
-    ConvolutionForward + Elemwise(ADD) -> ConvForwardBias
-    """
+	ConvolutionForward + Elemwise(ADD) -> ConvForwardBias
+	"""
     for opr in net.all_oprs:
         if (
             opr.name == "Conv2d"
@@ -861,6 +863,20 @@ def _remove_dropout(net: IRGraph):
             net.graph_outputs[idx] = owner_opr.inp_tensors[0]
 
 
+@_register_tranformation_rule(TransformerRule.REMOVE_RELU)
+def _remove_relu(net: IRGraph):
+    for opr in net.all_oprs:
+        for idx, inp in enumerate(opr.inp_tensors):
+            owner_opr = inp.owner_opr
+            if isinstance(owner_opr, ReluOpr):
+                opr.inp_tensors[idx] = owner_opr.inp_tensors[0]
+
+    for idx, out in enumerate(net.graph_outputs):
+        owner_opr = out.owner_opr
+        if isinstance(owner_opr, ReluOpr):
+            net.graph_outputs[idx] = owner_opr.inp_tensors[0]
+
+
 visited_tensor = set()  # type: set
 
 
@@ -895,22 +911,31 @@ def _add_fake_hsigmoid_tensor(net: IRGraph):
     for opr in net.all_oprs:
         if isinstance(opr, (HardSwishOpr, HardSigmoidOpr)):
             add_3_out_tensor = IRTensor(
-                opr.inp_tensors[0].name + "_fake_add3_out",
+                opr.out_tensors[0].name + "_fake_add3_out",
                 opr.inp_tensors[0].shape,
                 opr.inp_tensors[0].dtype,
+                q_type=opr.inp_tensors[0].q_dtype,
+                scale=opr.inp_tensors[0].scale,
+                zero_point=opr.inp_tensors[0].zero_point,
             )
             opr.add_inp_tensors(add_3_out_tensor)
             relu6_out_tensor = IRTensor(
-                opr.inp_tensors[0].name + "_relu6_out",
+                opr.out_tensors[0].name + "_relu6_out",
                 opr.inp_tensors[0].shape,
                 opr.inp_tensors[0].dtype,
+                q_type=opr.inp_tensors[0].q_dtype,
+                scale=opr.inp_tensors[0].scale,
+                zero_point=opr.inp_tensors[0].zero_point,
             )
             opr.add_inp_tensors(relu6_out_tensor)
             if isinstance(opr, HardSwishOpr):
                 div6_out_tensor = IRTensor(
-                    opr.inp_tensors[0].name + "_div_out",
+                    opr.out_tensors[0].name + "_div_out",
                     opr.inp_tensors[0].shape,
                     opr.inp_tensors[0].dtype,
+                    q_type=opr.inp_tensors[0].q_dtype,
+                    scale=opr.inp_tensors[0].scale,
+                    zero_point=opr.inp_tensors[0].zero_point,
                 )
                 opr.add_inp_tensors(div6_out_tensor)
 
@@ -975,3 +1000,11 @@ def _remove_identity(net: IRGraph):
 
     for delete_idx in delete_intended[::-1]:
         net.delete_ops(delete_idx)
+
+
+@_register_tranformation_rule(TransformerRule.RENAME_CAFFE_LAYER_TENSOR)
+def _rename_blob_name(net: IRGraph):
+    for opr in net.all_oprs:
+        out_name = opr.out_tensors[0].name
+        for inp in opr.inp_tensors:
+            inp.name = out_name + "_" + inp.name
