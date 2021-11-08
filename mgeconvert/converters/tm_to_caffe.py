@@ -80,6 +80,8 @@ def tracedmodule_to_caffe(
         TransformerRule.REMOVE_RESHAPE_REALTED_OP,
         TransformerRule.REMOVE_UNRELATED_IROP,
         TransformerRule.ADD_FAKE_HSIGMOID_OUT,
+        TransformerRule.CONV_ADD_ZERO_BIAS,
+        TransformerRule.FUSE_CONV_BN,
     ]
     if split_conv_relu:
         transformer_options += [TransformerRule.REMOVE_RELU]

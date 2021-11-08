@@ -37,6 +37,9 @@ def mge_to_onnx(
     transformer_options = [
         TransformerRule.FUSE_SOFTMAX,
         TransformerRule.EXPAND_MUL_ADD3,
+        TransformerRule.CONV_ADD_ZERO_BIAS,
+        TransformerRule.FUSE_CONV_BN,
+        TransformerRule.RESHAPE_BIAS_TO_1DIM,
     ]
     transformer = IRTransform(transformer_options)
     transformed_irgraph = transformer.transform(irgraph)
